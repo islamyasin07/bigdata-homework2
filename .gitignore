@@ -1,0 +1,17 @@
+/.bsp/
+target/
+.bloop/
+.metals/
+.idea/
+.vscode/
+*.iml
+*.log
+*.tmp
+*.new
+index.html
+web/
+.DS_Store
+.classpath
+.project
+.settings/
+.history/
