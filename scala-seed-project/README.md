@@ -1,71 +1,111 @@
 # TweetAnalyzer (Scala)
 
-This small project provides two utilities:
+A compact, terminal-first Scala project for ingesting tweets into MongoDB and running spatial + temporal word-frequency queries.
 
-- `InsertTweets.scala` — reads JSON-formatted tweets and inserts them into a MongoDB collection using the MongoSpark connector. It also creates an index on the `timestamp` field and a `2dsphere` index on `location`.
-- `WordFreqCalculator.scala` — counts occurrences of a word inside a circular geographic region (radius in meters) and inside a time interval.
+This repository contains small CLI utilities (Scala, sbt):
+
+- `InsertTweets` — ingest JSON-formatted tweets into MongoDB and normalize fields (creates `timestamp` Date and GeoJSON `location` when available). It also creates indexes: ascending on `timestamp` and a `2dsphere` index on `location`.
+- `MigrateTweets` — helper to migrate/normalize existing documents (sets `timestamp`/`location` where possible).
+- `WordFreqCalculator` — count occurrences of a word within a circular region (meters) and a time interval (epoch seconds). Supports counting in tweet text and hashtags, exact/substring matching and optional regex mode.
+- `RegionCount` — count documents in a spatial/time window (useful to check dataset density).
+- `DbInspect` — quick inspection tool: prints collection count, a sample document, and indexes.
+
+Why this repo is ready for submission
+- Build and tests pass locally (see `src/test/scala/WordFreqCalculatorSpec.scala`).
+- Data normalization and indexes are set up (timestamp Date field + `2dsphere` index).
+- The project is intentionally terminal-first — web UI code was removed per submission instructions.
 
 Prerequisites
-- Java + sbt
-- A running MongoDB instance. By default the code uses `mongodb://localhost:27017` and database `tweetsDB`, collection `tweets`. You can override those using environment variables `MONGO_URI`, `MONGO_DB`, and `MONGO_COLLECTION`.
+- Java 8+ and sbt
+- A running MongoDB instance accessible from the machine running these programs
+
+Default MongoDB settings
+- MONGO_URI: `mongodb://localhost:27017` (default)
+- MONGO_DB: `twitterDB` (default)
+- MONGO_COLLECTION: `tweets` (default)
+
+You can override these with environment variables. Example (PowerShell):
+
+```powershell
+$env:MONGO_URI = "mongodb://localhost:27017"
+$env:MONGO_DB = "tweetsDB"
+$env:MONGO_COLLECTION = "tweets"
+```
 
 Build
 
-Run with sbt. From the project root:
+From the project root:
 
 ```powershell
 sbt compile
 ```
 
-Insert tweets from JSON into MongoDB
+Run examples (PowerShell)
+
+- Insert tweets from JSON
 
 ```powershell
-# single file (or glob), optional mongoUri, db, collection
-sbt "runMain InsertTweets path\to\tweets.json mongodb://localhost:27017 tweetsDB tweets"
+# Insert a JSON file into MongoDB (path may be a glob)
+sbt "runMain InsertTweets C:\path\to\tweets.json mongodb://localhost:27017 twitterDB tweets"
 ```
 
-Word frequency query
+- Count occurrences of a word in a region and time interval
 
 ```powershell
-# Usage:
-# sbt "runMain WordFreqCalculator w r lon lat start end"
-# example: count occurrences of word 'flood' within 1000m of (-105.27,40.01)
+# Usage: sbt "runMain WordFreqCalculator <word> <radius_m> <lon> <lat> <start_epoch_sec> <end_epoch_sec>"
+# Example: count 'flood' within 1000m of (-105.27,40.01) between 2015-01-01 and 2015-01-02 (epoch secs shown below)
 sbt "runMain WordFreqCalculator flood 1000 -105.27 40.01 1420070400 1420156800"
 ```
 
-Notes & assumptions
-- The inserter attempts to normalize common timestamp fields such as `timestamp_ms` and `timestamp` and creates a `timestamp` Date field in MongoDB.
-- The inserter tries to normalize coordinate fields (`coordinates.coordinates`, `geo.coordinates`) into a GeoJSON `location` field. The inserted collection has a `2dsphere` index on `location` created automatically.
-- The query uses a MongoDB aggregation pipeline with `$geoNear` + aggregation expressions to clean text, split tokens, and count exact matches (case-insensitive). The pipeline uses operators available on MongoDB 4.4+ (e.g. `$regexReplace`).
+- Count documents in a region/time (no text matching)
 
-Improvements added
-- Word/token counting now supports counting occurrences in `text` and in `entities.hashtags`.
-- You can enable regex matching and configure whether hashtags are counted through environment variables when running the CLI:
-	- `INCLUDE_HASHTAGS=true|false` (default true)
-	- `REGEX=true|false` (default false)
-	- `PREVIEW=N` (not used heavily yet)
+```powershell
+# Usage: sbt "runMain RegionCount <lon> <lat> <radius_m> <start_epoch_sec> <end_epoch_sec>"
+sbt "runMain RegionCount -118.10041174 34.14628356 1000 1388448000 1388534400"
+```
 
-Automated test
-- A munit integration test `WordFreqCalculatorSpec` was added in `src/test/scala` that inserts sample documents into a temporary test DB and validates the counting logic. Run tests with:
+Useful environment flags for CLI runs
+
+- `INCLUDE_HASHTAGS=true|false` — whether hashtags are counted (default: true)
+- `REGEX=true|false` — enable regex matching (default: false)
+- `MATCH_TYPE=exact|substring` — match behavior for non-regex mode (default: exact)
+
+Testing
+
+Run unit/integration tests:
 
 ```powershell
 sbt test
 ```
 
-Terminal usage
-- The project ships command-line utilities and tests. Use the included CLI programs directly from sbt or package them. Example usage:
+Submission notes
+
+- The project is configured to be terminal-first. The grader can run `sbt test` and the example CLI commands above. The included `DbInspect` confirms the dataset and indexes.
+- Files included for submission: `src/main/scala`, `src/test/scala`, `build.sbt`, `project/`, `README.md`, `.gitignore`.
+
+Troubleshooting
+
+- If CLI tools can't find MongoDB, verify `MONGO_URI` and that the MongoDB service is running and accessible.
+- If counts are unexpectedly zero, run `DbInspect` to confirm the collection and sample documents:
 
 ```powershell
-# Insert tweets from JSON into MongoDB (example)
-sbt "runMain InsertTweets path\to\tweets.json mongodb://localhost:27017 tweetsDB tweets"
-
-# Word frequency query (CLI):
-# sbt "runMain WordFreqCalculator w r lon lat start end"
-# example: count occurrences of word 'flood' within 1000m of (-105.27,40.01)
-sbt "runMain WordFreqCalculator flood 1000 -105.27 40.01 1420070400 1420156800"
+sbt "runMain DbInspect"
 ```
 
-The project is terminal-first: a previous web UI was removed. Use the CLI tools below from the terminal.
-Final notes
-- The migration program `MigrateTweets` normalized the existing collection and created `timestamp` and `location` indexes.
-- If you want more visual polish, we can replace the static UI with a React/Vite app and add charts (e.g., Chart.js) and downloadable PDF reports. Tell me which style you prefer and I will scaffold it.
+Contact / Notes
+
+If you want, I can:
+
+- create a small PowerShell helper script to run common queries,
+- create a single `Compress-Archive` zip for submission, or
+- push this repository to the remote (I can do that now).
+
+---
+Short changelog
+
+- Removed web UI and server code to keep the project terminal-first.
+- Added CLI utilities: `InsertTweets`, `MigrateTweets`, `WordFreqCalculator`, `RegionCount`, `DbInspect`.
+- Added tests and updated `.gitignore`.
+
+---
+Good luck with the submission — tell me if you want me to push the README commit now.
