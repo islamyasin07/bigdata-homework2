@@ -1,34 +1,104 @@
-# TweetAnalyzer (Scala)
+# TweetAnalyzer — Command-line Tweet Analysis (Scala + MongoDB)
 
-A compact, terminal-first Scala project for ingesting tweets into MongoDB and running spatial + temporal word-frequency queries.
+This repository provides a compact, terminal-first toolkit to ingest JSON-formatted tweets into MongoDB, normalize timestamps and geolocation, and run accurate spatial + temporal word-frequency queries. It's designed for grading and reproducible runs without a web UI.
 
-This repository contains small CLI utilities (Scala, sbt):
+**Highlights**
+- Ingest JSON tweets into a MongoDB collection named `tweets` with `timestamp` stored as BSON `Date` and `location` as GeoJSON `Point`.
+- Create performant indexes: ascending `timestamp` and `2dsphere` `location`.
+- Command-line utilities for inspection, migration, spatial counts and word-frequency analysis.
+- Unit tests validate the core counting logic.
 
-- `InsertTweets` — ingest JSON-formatted tweets into MongoDB and normalize fields (creates `timestamp` Date and GeoJSON `location` when available). It also creates indexes: ascending on `timestamp` and a `2dsphere` index on `location`.
-- `MigrateTweets` — helper to migrate/normalize existing documents (sets `timestamp`/`location` where possible).
-- `WordFreqCalculator` — count occurrences of a word within a circular region (meters) and a time interval (epoch seconds). Supports counting in tweet text and hashtags, exact/substring matching and optional regex mode.
-- `RegionCount` — count documents in a spatial/time window (useful to check dataset density).
-- `DbInspect` — quick inspection tool: prints collection count, a sample document, and indexes.
+**Contents**
+- `src/main/scala/InsertTweets.scala` — ingest JSON (Spark), normalize fields, write to MongoDB and create indexes.
+- `src/main/scala/MigrateTweets.scala` — fill missing `timestamp` / `location` for existing documents.
+- `src/main/scala/DbInspect.scala` — show collection count, a sample document and indexes.
+- `src/main/scala/RegionCount.scala` — count documents inside a circular region + time interval.
+- `src/main/scala/WordFreqCalculator.scala` — count word occurrences (text + hashtags) within region + time window.
+- `src/test/scala/WordFreqCalculatorSpec.scala` — unit tests for counting logic.
 
-Why this repo is ready for submission
-- Build and tests pass locally (see `src/test/scala/WordFreqCalculatorSpec.scala`).
-- Data normalization and indexes are set up (timestamp Date field + `2dsphere` index).
-- The project is intentionally terminal-first — web UI code was removed per submission instructions.
+**Requirements**
+- Java 8+ and `sbt` installed.
+- A running MongoDB instance (default `mongodb://localhost:27017`).
 
-Prerequisites
-- Java 8+ and sbt
-- A running MongoDB instance accessible from the machine running these programs
+**Environment variables**
+- `MONGO_URI` — MongoDB connection string (default: `mongodb://localhost:27017`).
+- `MONGO_DB` — database name (default: `twitterDB`).
+- `MONGO_COLLECTION` — collection name (default: `tweets`).
+- `INCLUDE_HASHTAGS` — `true|false` (default: `true`). Controls whether hashtags are counted.
+- `REGEX` — `true|false` (default: `false`). If `true`, interprets the word argument as a regular expression.
+- `MATCH_TYPE` — `exact|substring` (default: `exact`). Determines token matching behavior.
 
-Default MongoDB settings
-- MONGO_URI: `mongodb://localhost:27017` (default)
-- MONGO_DB: `twitterDB` (default)
-- MONGO_COLLECTION: `tweets` (default)
-
-You can override these with environment variables. Example (PowerShell):
+**Build & run (quick)**
+From the repository root:
 
 ```powershell
-$env:MONGO_URI = "mongodb://localhost:27017"
-$env:MONGO_DB = "tweetsDB"
+cd scala-seed-project
+sbt test               # compile and run unit tests
+```
+
+To run any CLI utility use `sbt "runMain <MainClass> <args...>"`.
+
+Examples
+
+- Inspect the database (count, sample document, indexes):
+
+```powershell
+sbt "runMain DbInspect"
+```
+
+- Count documents in a circular region (lon lat radius_m start_epoch end_epoch):
+
+```powershell
+sbt "runMain RegionCount -118.10041174 34.14628356 100 1388462062 1388548462"
+# Example output: Documents in region/time: 1
+```
+
+- Count occurrences of a word (word radius_m lon lat start_epoch end_epoch):
+
+```powershell
+sbt "runMain WordFreqCalculator drunk 100 -118.10041174 34.14628356 1388462062 1388548462"
+# Example output: Total occurrences of 'drunk' = 2
+```
+
+- Broader example (used in unit tests):
+
+```powershell
+sbt "runMain WordFreqCalculator boulder 5000 -105.27 40.01 0 9999999999"
+# Example output: Total occurrences of 'boulder' = 2202
+```
+
+Expected results for the example runs
+- `DbInspect` prints the collection count (e.g., `18821`), a sample tweet and the index list containing `_id_`, `timestamp_1`, and `location_2dsphere`.
+- `RegionCount` returns a small integer matching the number of documents within the specified circle and time window.
+- `WordFreqCalculator` returns the total occurrences of the queried token across tweet text and hashtags (value depends on DB contents). Example runs above correspond to data in the included dataset.
+
+Behavior & implementation notes
+- `InsertTweets` converts `timestamp_ms` / `created_at` into a BSON Date field named `timestamp` and normalizes coordinates into `location: { type: "Point", coordinates: [lon, lat] }`.
+- Spatial queries use MongoDB `$geoWithin` with `$centerSphere` (radius meters converted to radians using earth radius 6,378,100 m).
+- Word counting is performed client-side after the geo+time filter; it normalizes text (NFKC) and applies exact, substring or regex matching and can include hashtags.
+
+Testing
+
+```powershell
+cd scala-seed-project
+sbt test
+```
+
+Troubleshooting
+- If the repository appears large, build artifacts can be removed safely:
+
+```powershell
+Remove-Item -LiteralPath 'scala-seed-project\\target' -Recurse -Force
+```
+
+- If MongoDB is remote or uses different names, set `MONGO_URI`, `MONGO_DB` and `MONGO_COLLECTION` before running commands.
+
+Packaging for submission
+- The repository is ready for submission. For a compact package, exclude build caches (`target`, `.bloop`, `.metals`) when creating the zip.
+
+Contact
+- If you want additional runner scripts, a submission archive, or server-side aggregation for larger datasets, request the change and it will be added.
+
 $env:MONGO_COLLECTION = "tweets"
 ```
 
